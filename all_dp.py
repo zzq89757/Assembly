@@ -1,11 +1,26 @@
 from typing import Callable, List
+from collections import defaultdict
+
+def reverse_complement(seq: str) -> str:
+    trantab = str.maketrans("ACGTNacgtnRYMKrymkVBHDvbhd", "TGCANtgcanYRKMyrkmBVDHbvdh")
+    return seq.translate(trantab)[::-1]
 
 
+def construct_dict(seq_li:List[str]) -> defaultdict:
+    seq_dict = {i + 1:v for i,v in enumerate(seq_li)}
+    seq_dict.update({-i:reverse_complement(v) for i,v in seq_dict.items()})
+    return seq_dict
+    
 
-# 
-    # 序列及其反向互补两两比对 计算重叠区identity
+def is_valid_aln(seq1:str, seq2:str) -> None:
+    print(f"{seq1}->{seq2}")
+
+
+# 序列及其反向互补两两比对 计算重叠区identity
 
 def assembly_by_olc(seq_li:List[str]) -> str:
+    # 构建序列字典
+    seq_dict = construct_dict(seq_li)
     n = len(seq_li)
     # 序列索引为1~n 反向互补为-1~-n 
     index_record = []  # 两两比对时 计算索引乘积是否已存在 存在则跳过
@@ -16,8 +31,11 @@ def assembly_by_olc(seq_li:List[str]) -> str:
             if i + j == 0:continue # skip while loop to itself
             if i * j in index_record and i * j > 0:continue # skip while index exists in record
             index_record.append(i * j) # append index to record
-            # 比对并计算重叠区identity
-            print(f"{i}*{j}")
+            # 两两比对并计算重叠区identity 记录拼接中间结果
+            is_valid_aln(seq_dict[i], seq_dict[j])
+            
         
 if __name__ == "__main__":
-    assembly_by_olc(['sds','sd', 'asds'])
+    seq_li = ['CGTAGCT','GCTGTAGT', 'ACAGTGTAC']
+    assembly_by_olc(seq_li)
+    # construct_dict(['CGTAGCT','GCTGTAGT', 'ACAGTGTAC'])
