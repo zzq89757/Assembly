@@ -2,13 +2,43 @@ from typing import Callable, List
 from collections import defaultdict
 import numpy as np
 
+import time
+import tracemalloc
+from functools import wraps
+
+def measure_time_and_memory(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        # 开始测量时间和内存
+        start_time = time.time()
+        tracemalloc.start()
+
+        # 执行函数
+        result = func(*args, **kwargs)
+
+        # 结束测量时间和内存
+        end_time = time.time()
+        current, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+
+        # 打印耗费时间和内存
+        print(f"Time taken: {end_time - start_time:.4f} seconds")
+        print(f"Current memory usage: {current / 10**6:.4f} MB")
+        print(f"Peak memory usage: {peak / 10**6:.4f} MB")
+        
+        return result
+
+    return wrapper
+
+
 def reverse_complement(seq: str) -> str:
     trantab = str.maketrans("ACGTNacgtnRYMKrymkVBHDvbhd", "TGCANtgcanYRKMyrkmBVDHbvdh")
     return seq.translate(trantab)[::-1]
 
+import numpy as np
 
-def global_aln_by_dp(seq1:str, seq2:str) -> None:
-    # 来源
+def aln_by_dp(seq1: str, seq2: str, is_global_aln: bool = True) -> None:
+    # 定义方向常量
     UP = 1
     X = 4
     LEFT = 2
@@ -26,51 +56,58 @@ def global_aln_by_dp(seq1:str, seq2:str) -> None:
     # 构建打分和方向矩阵
     for i in range(row_num):
         for j in range(col_num):
-            if i == j == 0:continue
-            # 初始化首行首列
+            if i == j == 0:
+                continue
+            # 初始化首行首列（全局比对）
             if i == 0:
-                score_matrix[i, j] = score_matrix[i, j -1] + gap_penalty
-                trace_matrix[i ,j] = LEFT
+                score_matrix[i, j] = score_matrix[i, j - 1] + gap_penalty if is_global_aln else 0
+                trace_matrix[i, j] = LEFT
                 continue
             if j == 0:
-                score_matrix[i, j] = score_matrix[i - 1, j] + gap_penalty
-                trace_matrix[i ,j] = UP
+                score_matrix[i, j] = score_matrix[i - 1, j] + gap_penalty if is_global_aln else 0
+                trace_matrix[i, j] = UP
                 continue
             # 不同方向来源的最终得分
-            score_from_up_left = score_matrix[i-1, j-1] + match_reward if seq1[j - 1] == seq2[i - 1] else score_matrix[i-1, j-1] + mis_penalty
-            score_from_up = score_matrix[i - 1 , j] + gap_penalty
-            score_from_left = score_matrix[i , j - 1] + gap_penalty
+            score_from_up_left = score_matrix[i-1, j-1] + (match_reward if seq1[j - 1] == seq2[i - 1] else mis_penalty)
+            score_from_up = score_matrix[i - 1, j] + gap_penalty
+            score_from_left = score_matrix[i, j - 1] + gap_penalty
             # 获取得分最高的来源存入轨迹矩阵 最高分存入打分矩阵
             scores = [score_from_up, score_from_up_left, score_from_left]
             best_score = max(scores)
+            
+            # 对于局部比对，最小值设为0
+            if not is_global_aln:
+                best_score = max(0, best_score)
+            
             score_matrix[i, j] = best_score
             trace_matrix[i, j] = (UP if scores[0] == best_score else 0) + (X if scores[1] == best_score else 0) + (LEFT if scores[2] == best_score else 0)
+    
     # 回溯并生成比对结果
-    x_pos = col_num - 1
-    y_pos = row_num - 1
+    if is_global_aln:
+        x_pos = col_num - 1
+        y_pos = row_num - 1
+    else:
+        # 对于局部比对，找到最大值的位置开始回溯
+        y_pos, x_pos = np.unravel_index(np.argmax(score_matrix), score_matrix.shape)
+
     aln1 = ""
     aln2 = ""
-    while(x_pos != 0 and y_pos != 0):
-        # 获取（x,y）对应的来源路径
+    while (x_pos != 0 or y_pos != 0) and (is_global_aln or score_matrix[y_pos, x_pos] > 0):
         path_score = trace_matrix[y_pos, x_pos]
-        # 只能往上走
         if path_score == UP:
             aln1 += "-"
             aln2 += seq2[y_pos - 1]
             y_pos -= 1
-        # 只能往左
-        if path_score == LEFT:
+        elif path_score == LEFT:
             aln1 += seq1[x_pos - 1]
             aln2 += "-"
             x_pos -= 1
-        # 只能斜
-        if path_score == X:
+        elif path_score == X:
             aln1 += seq1[x_pos - 1]
             aln2 += seq2[y_pos - 1]
             x_pos -= 1
             y_pos -= 1
-        # 左和上皆可，看哪个分高
-        if path_score == UP + LEFT:
+        elif path_score == UP + LEFT:
             if score_matrix[y_pos - 1, x_pos] > score_matrix[y_pos, x_pos - 1]:
                 aln1 += "-"
                 aln2 += seq2[y_pos - 1]
@@ -79,8 +116,7 @@ def global_aln_by_dp(seq1:str, seq2:str) -> None:
                 aln1 += seq1[x_pos - 1]
                 aln2 += "-"
                 x_pos -= 1
-        #左斜
-        if path_score == LEFT + X:
+        elif path_score == LEFT + X:
             if score_matrix[y_pos - 1, x_pos - 1] > score_matrix[y_pos, x_pos - 1]:
                 aln1 += seq1[x_pos - 1]
                 aln2 += seq2[y_pos - 1]
@@ -90,8 +126,7 @@ def global_aln_by_dp(seq1:str, seq2:str) -> None:
                 aln1 += seq1[x_pos - 1]
                 aln2 += "-"
                 x_pos -= 1
-        # 上斜
-        if path_score == UP + X:
+        elif path_score == UP + X:
             if score_matrix[y_pos - 1, x_pos - 1] > score_matrix[y_pos - 1, x_pos]:
                 aln1 += seq1[x_pos - 1]
                 aln2 += seq2[y_pos - 1]
@@ -101,8 +136,7 @@ def global_aln_by_dp(seq1:str, seq2:str) -> None:
                 aln1 += "-"
                 aln2 += seq2[y_pos - 1]
                 y_pos -= 1
-        # 左上斜
-        if path_score == UP + LEFT + X:
+        elif path_score == UP + LEFT + X:
             if score_matrix[y_pos - 1, x_pos - 1] > score_matrix[y_pos - 1, x_pos] and score_matrix[y_pos - 1, x_pos - 1] > score_matrix[y_pos, x_pos - 1]:
                 aln1 += seq1[x_pos - 1]
                 aln2 += seq2[y_pos - 1]
@@ -117,14 +151,12 @@ def global_aln_by_dp(seq1:str, seq2:str) -> None:
                 aln2 += "-"
                 x_pos -= 1
             
-    # print("Score Matrix:")
-    # print(score_matrix)
-    # print("Trace Matrix:")
-    # print(trace_matrix)
     print("Alignment1 ", end="")
     print("".join(aln1[::-1]))
     print("Alignment2 ", end="")
     print("".join(aln2[::-1]))
+
+
 
 
 def construct_dict(seq_li:List[str]) -> defaultdict:
@@ -139,11 +171,12 @@ def is_valid_aln(seq1:str, seq2:str) -> None:
     计算两序列比对结果 overlap长度和identity是否达到阈值
     '''
     print(f"{seq1}->{seq2}")
-    global_aln_by_dp(seq1, seq2)
+    aln_by_dp(seq1, seq2, False)
 
 
 # 序列及其反向互补两两比对 计算重叠区identity
-
+# 使用装饰器
+@measure_time_and_memory
 def assembly_by_olc(seq_li:List[str]) -> str:
     # 构建序列字典
     seq_dict = construct_dict(seq_li)
